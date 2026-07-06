@@ -382,19 +382,50 @@ let confirmCb   = null;
   init();draw();
 })();
 
-// ── API ───────────────────────────────────────────────────────
-async function api(params) {
-  const qs = Object.entries(params)
-    .map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(String(v)))
-    .join('&');
-  try {
-    const res  = await fetch(API+'?'+qs,{method:'GET',mode:'cors'});
-    const json = await res.json();
-    return json;
-  } catch(e) {
-    console.error('API error:',e);
-    return {ok:false,error:e.message};
-  }
+
+// ════════════════════════════════════════════════════════
+//  API via JSONP — elimina error CORS con Google Apps Script
+// ════════════════════════════════════════════════════════
+function api(params) {
+  return new Promise((resolve) => {
+    // Nombre único para el callback
+    const cbName = 'rdoro_cb_' + Date.now() + '_' + Math.floor(Math.random()*9999);
+
+    // Timeout de 15 segundos
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({ ok: false, error: 'Tiempo de espera agotado. Verifica tu conexión.' });
+    }, 15000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[cbName];
+      const el = document.getElementById(cbName);
+      if (el) el.remove();
+    }
+
+    // Registrar callback global
+    window[cbName] = function(data) {
+      cleanup();
+      resolve(data);
+    };
+
+    // Construir URL con parámetros
+    params.callback = cbName;
+    const qs = Object.entries(params)
+      .map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v)))
+      .join('&');
+
+    // Inyectar <script> — bypasea CORS completamente
+    const script = document.createElement('script');
+    script.id  = cbName;
+    script.src = API + '?' + qs;
+    script.onerror = function() {
+      cleanup();
+      resolve({ ok: false, error: 'No se pudo conectar al servidor. Verifica que el script esté desplegado correctamente.' });
+    };
+    document.head.appendChild(script);
+  });
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────
