@@ -613,20 +613,50 @@ let customQty     = 2;
 let useCustom     = false;
 let currentFilter = 'all';
 
+
 // ════════════════════════════════════════════════════════
-//  API
+//  API via JSONP — elimina error CORS con Google Apps Script
 // ════════════════════════════════════════════════════════
-async function api(params) {
-  const qs=Object.entries(params)
-    .map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(String(v)))
-    .join('&');
-  try {
-    const res=await fetch(API+'?'+qs,{method:'GET',mode:'cors'});
-    return await res.json();
-  } catch(e) {
-    console.error('API:',e);
-    return {ok:false,error:e.message};
-  }
+function api(params) {
+  return new Promise((resolve) => {
+    // Nombre único para el callback
+    const cbName = 'rdoro_cb_' + Date.now() + '_' + Math.floor(Math.random()*9999);
+
+    // Timeout de 15 segundos
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({ ok: false, error: 'Tiempo de espera agotado. Verifica tu conexión.' });
+    }, 15000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      delete window[cbName];
+      const el = document.getElementById(cbName);
+      if (el) el.remove();
+    }
+
+    // Registrar callback global
+    window[cbName] = function(data) {
+      cleanup();
+      resolve(data);
+    };
+
+    // Construir URL con parámetros
+    params.callback = cbName;
+    const qs = Object.entries(params)
+      .map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v)))
+      .join('&');
+
+    // Inyectar <script> — bypasea CORS completamente
+    const script = document.createElement('script');
+    script.id  = cbName;
+    script.src = API + '?' + qs;
+    script.onerror = function() {
+      cleanup();
+      resolve({ ok: false, error: 'No se pudo conectar al servidor. Verifica que el script esté desplegado correctamente.' });
+    };
+    document.head.appendChild(script);
+  });
 }
 
 // ════════════════════════════════════════════════════════
@@ -894,7 +924,7 @@ async function doVerify(){
   res_el.innerHTML='<div style="text-align:center;padding:24px;color:var(--muted)"><span class="loading"></span> Buscando…</div>';
 
   // Buscar en Sheet (sin token — el script no devuelve datos sensibles del admin)
-  const res=await api({action:'getSolicitudes',token:'_public_',sorteoId});
+  const res=await api({action:'getSolicitudes',sorteoId});
 
   if(!res.ok||!res.solicitudes){
     res_el.innerHTML='<div class="err-box">No se pudo conectar al servidor. Intenta más tarde.</div>';
